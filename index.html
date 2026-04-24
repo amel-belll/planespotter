@@ -1,0 +1,1429 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0a0e1a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="PlaneRadar">
+  <meta name="description" content="Détecte les avions qui passent au-dessus de toi">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <title>PlaneRadar</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg-deep:     #060810;
+      --bg-panel:    #0d1120;
+      --bg-card:     #111827;
+      --bg-card2:    #161f30;
+      --amber:       #f5a623;
+      --amber-dim:   #8a5e14;
+      --amber-glow:  rgba(245,166,35,0.15);
+      --green:       #00e5a0;
+      --green-dim:   #005c40;
+      --green-glow:  rgba(0,229,160,0.12);
+      --red:         #ff4d6d;
+      --blue:        #38bdf8;
+      --text-main:   #e8edf5;
+      --text-dim:    #6b7a99;
+      --text-mono:   'Share Tech Mono', monospace;
+      --text-ui:     'Exo 2', sans-serif;
+      --border:      rgba(245,166,35,0.18);
+      --radius:      10px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--bg-deep);
+      color: var(--text-main);
+      font-family: var(--text-ui);
+      overflow: hidden;
+    }
+
+    /* ── APP SHELL ── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+      width: 100%;
+    }
+
+    /* ── HEADER ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-icon {
+      width: 36px; height: 36px;
+      background: radial-gradient(circle at 40% 40%, #1a2540, #0a0e1a);
+      border: 1px solid var(--amber-dim);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .logo-icon::before {
+      content: '';
+      position: absolute;
+      width: 200%; height: 200%;
+      top: -100%; left: -100%;
+      background: conic-gradient(from 0deg, transparent 0%, var(--amber-glow) 10%, transparent 20%);
+      animation: radar-spin 3s linear infinite;
+      transform-origin: center;
+    }
+
+    .logo-icon svg { z-index: 1; }
+
+    @keyframes radar-spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+
+    .logo h1 {
+      font-family: var(--text-mono);
+      font-size: 1.1rem;
+      letter-spacing: 0.12em;
+      color: var(--amber);
+      text-shadow: 0 0 12px var(--amber-glow);
+    }
+
+    .logo span {
+      font-size: 0.6rem;
+      color: var(--text-dim);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      font-family: var(--text-mono);
+      display: block;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      transition: all 0.3s;
+    }
+    .status-dot.scanning { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse-dot 2s infinite; }
+    .status-dot.error    { background: var(--red);   box-shadow: 0 0 8px var(--red); }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+    }
+
+    .status-text {
+      font-family: var(--text-mono);
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      letter-spacing: 0.08em;
+    }
+
+    .btn-icon {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      width: 34px; height: 34px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-icon:hover, .btn-icon.active {
+      border-color: var(--amber);
+      color: var(--amber);
+      background: var(--amber-glow);
+    }
+
+    /* ── MAP ── */
+    #map-container {
+      position: relative;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Leaflet dark override */
+    .leaflet-tile-pane { filter: brightness(0.6) saturate(0.4) hue-rotate(200deg); }
+    .leaflet-control-zoom { display: none; }
+    .leaflet-control-attribution { display: none; }
+
+    /* Radius circle */
+    .radius-circle { stroke: var(--amber) !important; stroke-width: 1.5; stroke-dasharray: 5,5; fill: rgba(245,166,35,0.04); }
+
+    /* ── MY POSITION MARKER ── */
+    .my-marker {
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(56,189,248,0.5), transparent);
+      border: 2px solid var(--blue);
+      box-shadow: 0 0 0 4px rgba(56,189,248,0.15);
+      animation: my-pulse 2s infinite;
+    }
+    @keyframes my-pulse {
+      0% { box-shadow: 0 0 0 4px rgba(56,189,248,0.15); }
+      50% { box-shadow: 0 0 0 10px rgba(56,189,248,0.05); }
+      100% { box-shadow: 0 0 0 4px rgba(56,189,248,0.15); }
+    }
+
+    /* ── PLANE MARKERS ── */
+    .plane-marker {
+      background: none;
+      border: none;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .plane-icon {
+      font-size: 20px;
+      filter: drop-shadow(0 0 6px var(--amber));
+      transition: transform 0.5s;
+      cursor: pointer;
+    }
+    .plane-icon:hover { transform: scale(1.3) !important; }
+
+    /* ── PLANE POPUP (Leaflet) ── */
+    .leaflet-popup-content-wrapper {
+      background: var(--bg-card2) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: var(--radius) !important;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.5) !important;
+      color: var(--text-main) !important;
+    }
+    .leaflet-popup-tip { background: var(--bg-card2) !important; }
+    .leaflet-popup-content { margin: 0 !important; padding: 0 !important; }
+
+    .popup-content {
+      padding: 12px 14px;
+      font-family: var(--text-ui);
+      min-width: 200px;
+    }
+    .popup-callsign {
+      font-family: var(--text-mono);
+      color: var(--amber);
+      font-size: 1rem;
+      letter-spacing: 0.1em;
+      margin-bottom: 8px;
+    }
+    .popup-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+    .popup-row span:last-child { color: var(--text-main); font-weight: 600; }
+    .popup-airline {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--green);
+      font-weight: 600;
+    }
+
+    /* ── MAP OVERLAY HUD ── */
+    .hud-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none;
+      z-index: 400;
+    }
+
+    .hud-corner {
+      position: absolute;
+      font-family: var(--text-mono);
+      font-size: 0.6rem;
+      color: rgba(245,166,35,0.5);
+      letter-spacing: 0.1em;
+    }
+    .hud-tl { top: 10px; left: 10px; }
+    .hud-tr { top: 10px; right: 10px; text-align: right; }
+    .hud-bl { bottom: 60px; left: 10px; }
+    .hud-br { bottom: 60px; right: 10px; text-align: right; }
+
+    /* ── BOTTOM PANEL ── */
+    #bottom-panel {
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+      z-index: 100;
+      overflow: hidden;
+      transition: height 0.3s cubic-bezier(0.4,0,0.2,1);
+      height: 220px;
+    }
+    #bottom-panel.collapsed { height: 54px; }
+    #bottom-panel.expanded  { height: 360px; }
+
+    .panel-handle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      height: 54px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .panel-title {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .panel-title h2 {
+      font-size: 0.8rem;
+      font-family: var(--text-mono);
+      letter-spacing: 0.15em;
+      color: var(--amber);
+      text-transform: uppercase;
+    }
+
+    .count-badge {
+      background: var(--amber-glow);
+      border: 1px solid var(--amber-dim);
+      color: var(--amber);
+      font-family: var(--text-mono);
+      font-size: 0.65rem;
+      padding: 2px 7px;
+      border-radius: 20px;
+      letter-spacing: 0.05em;
+    }
+
+    .panel-chevron {
+      color: var(--text-dim);
+      transition: transform 0.3s;
+    }
+    #bottom-panel.collapsed .panel-chevron { transform: rotate(180deg); }
+
+    .planes-list {
+      padding: 0 10px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+      max-height: 300px;
+    }
+
+    /* ── PLANE CARD ── */
+    .plane-card {
+      background: var(--bg-card);
+      border: 1px solid rgba(245,166,35,0.12);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      animation: card-in 0.3s ease;
+    }
+    .plane-card:hover { border-color: var(--amber-dim); background: var(--bg-card2); }
+    .plane-card.new { border-color: var(--green); box-shadow: 0 0 12px var(--green-glow); }
+
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .card-icon {
+      width: 38px; height: 38px;
+      background: var(--amber-glow);
+      border: 1px solid var(--amber-dim);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem;
+    }
+
+    .card-info { overflow: hidden; }
+
+    .card-callsign {
+      font-family: var(--text-mono);
+      font-size: 0.85rem;
+      color: var(--amber);
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .card-airline {
+      font-size: 0.7rem;
+      color: var(--green);
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .card-route {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .card-stats {
+      text-align: right;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .stat-val {
+      font-family: var(--text-mono);
+      font-size: 0.85rem;
+      color: var(--text-main);
+    }
+    .stat-lbl {
+      font-size: 0.6rem;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+    }
+
+    /* ── EMPTY STATE ── */
+    .empty-state {
+      text-align: center;
+      padding: 20px;
+      color: var(--text-dim);
+      font-size: 0.8rem;
+      font-family: var(--text-mono);
+      letter-spacing: 0.05em;
+    }
+    .empty-state .radar-anim {
+      font-size: 2rem;
+      display: block;
+      margin-bottom: 8px;
+      animation: float 3s ease-in-out infinite;
+    }
+    @keyframes float {
+      0%,100% { transform: translateY(0); }
+      50%      { transform: translateY(-6px); }
+    }
+
+    /* ── SETTINGS PANEL ── */
+    #settings-panel {
+      position: absolute;
+      top: 0; right: -320px;
+      width: 300px;
+      height: 100%;
+      background: var(--bg-panel);
+      border-left: 1px solid var(--border);
+      z-index: 500;
+      transition: right 0.3s cubic-bezier(0.4,0,0.2,1);
+      overflow-y: auto;
+      padding: 20px 16px;
+    }
+    #settings-panel.open { right: 0; }
+
+    .settings-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 499;
+      display: none;
+    }
+    .settings-overlay.open { display: block; }
+
+    .settings-title {
+      font-family: var(--text-mono);
+      color: var(--amber);
+      font-size: 0.85rem;
+      letter-spacing: 0.15em;
+      margin-bottom: 20px;
+      text-transform: uppercase;
+    }
+
+    .settings-section {
+      margin-bottom: 20px;
+    }
+    .settings-label {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 8px;
+    }
+
+    .settings-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .settings-row-label {
+      font-size: 0.85rem;
+      color: var(--text-main);
+    }
+    .settings-row-sub {
+      font-size: 0.65rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    /* Toggle switch */
+    .toggle {
+      position: relative;
+      width: 44px; height: 24px;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute;
+      inset: 0;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 16px; height: 16px;
+      left: 3px; top: 3px;
+      background: var(--text-dim);
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+    .toggle input:checked + .toggle-slider { background: var(--amber-glow); border-color: var(--amber); }
+    .toggle input:checked + .toggle-slider::before {
+      transform: translateX(20px);
+      background: var(--amber);
+    }
+
+    /* Range input */
+    .range-container { margin-top: 6px; }
+    .range-val {
+      font-family: var(--text-mono);
+      font-size: 1.1rem;
+      color: var(--amber);
+      margin-bottom: 6px;
+    }
+    input[type=range] {
+      width: 100%;
+      -webkit-appearance: none;
+      height: 4px;
+      background: var(--bg-card2);
+      border-radius: 2px;
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px; height: 18px;
+      background: var(--amber);
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 0 8px var(--amber-dim);
+    }
+
+    .btn-primary {
+      width: 100%;
+      padding: 12px;
+      background: var(--amber-glow);
+      border: 1px solid var(--amber-dim);
+      color: var(--amber);
+      font-family: var(--text-mono);
+      font-size: 0.8rem;
+      letter-spacing: 0.1em;
+      border-radius: var(--radius);
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: all 0.2s;
+      margin-top: 8px;
+    }
+    .btn-primary:hover { background: rgba(245,166,35,0.25); border-color: var(--amber); }
+
+    /* ── TOAST NOTIFICATION ── */
+    #toast-container {
+      position: fixed;
+      top: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: calc(100% - 32px);
+      max-width: 360px;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: var(--bg-card2);
+      border: 1px solid var(--green);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 4px 20px rgba(0,229,160,0.15);
+      animation: toast-in 0.3s ease, toast-out 0.3s ease 4.7s forwards;
+    }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(-20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes toast-out {
+      to { opacity: 0; transform: translateY(-20px); }
+    }
+
+    .toast-icon { font-size: 1.4rem; flex-shrink: 0; }
+    .toast-title {
+      font-family: var(--text-mono);
+      font-size: 0.8rem;
+      color: var(--green);
+      letter-spacing: 0.05em;
+    }
+    .toast-body { font-size: 0.72rem; color: var(--text-dim); margin-top: 2px; }
+
+    /* ── LOADING SCREEN ── */
+    #loading-screen {
+      position: fixed;
+      inset: 0;
+      background: var(--bg-deep);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      transition: opacity 0.5s;
+    }
+    #loading-screen.hidden { opacity: 0; pointer-events: none; }
+
+    .loading-radar {
+      width: 100px; height: 100px;
+      border-radius: 50%;
+      border: 1px solid var(--amber-dim);
+      position: relative;
+      margin-bottom: 24px;
+    }
+    .loading-radar::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: conic-gradient(from 0deg, var(--amber-glow) 0%, transparent 30%);
+      animation: radar-spin 2s linear infinite;
+    }
+    .loading-radar::after {
+      content: '';
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 2px; height: 50%;
+      background: linear-gradient(to top, var(--amber), transparent);
+      transform-origin: bottom center;
+      animation: radar-spin 2s linear infinite;
+      margin-left: -1px;
+      margin-top: -50%;
+    }
+
+    .loading-text {
+      font-family: var(--text-mono);
+      color: var(--amber);
+      font-size: 0.8rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* ── INSTALL BANNER ── */
+    #install-banner {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border);
+      padding: 14px 16px;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      z-index: 600;
+    }
+    #install-banner.visible { display: flex; }
+    #install-banner p { font-size: 0.8rem; flex: 1; color: var(--text-main); }
+    #install-banner p span { color: var(--amber); font-weight: 600; }
+    .btn-install {
+      background: var(--amber);
+      color: #000;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-family: var(--text-mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-dismiss {
+      background: none; border: none;
+      color: var(--text-dim);
+      font-size: 1.2rem;
+      cursor: pointer;
+      padding: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- LOADING SCREEN -->
+<div id="loading-screen">
+  <div class="loading-radar"></div>
+  <div class="loading-text">Initialisation du radar...</div>
+</div>
+
+<!-- INSTALL BANNER -->
+<div id="install-banner">
+  <p>📲 Installe <span>PlaneRadar</span> sur ton téléphone pour l'utiliser hors-ligne</p>
+  <button class="btn-install" id="btn-install">Installer</button>
+  <button class="btn-dismiss" id="btn-dismiss">✕</button>
+</div>
+
+<!-- SETTINGS OVERLAY -->
+<div class="settings-overlay" id="settings-overlay"></div>
+
+<!-- SETTINGS PANEL -->
+<div id="settings-panel">
+  <div class="settings-title">⚙ Paramètres</div>
+
+  <div class="settings-section">
+    <div class="settings-label">Zone de détection</div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Rayon de surveillance</div>
+        <div class="settings-row-sub">Distance maximale de détection</div>
+      </div>
+    </div>
+    <div class="range-container">
+      <div class="range-val"><span id="radius-val">10</span> km</div>
+      <input type="range" id="radius-slider" min="5" max="50" value="10" step="5">
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-label">Notifications</div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Notifications push</div>
+        <div class="settings-row-sub">Alerte à chaque nouvel avion</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="notif-toggle" checked>
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Son d'alerte</div>
+        <div class="settings-row-sub">Bip à la détection</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="sound-toggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="settings-row">
+      <div>
+        <div class="settings-row-label">Altitude minimale</div>
+        <div class="settings-row-sub">Ignorer les très basses altitudes</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="alt-filter-toggle">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-label">Intervalle de mise à jour</div>
+    <div class="range-container">
+      <div class="range-val"><span id="interval-val">30</span> secondes</div>
+      <input type="range" id="interval-slider" min="15" max="120" value="30" step="15">
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <div class="settings-label">Position manuelle</div>
+    <div style="display:grid; gap:8px; margin-top:8px;">
+      <input type="number" id="manual-lat" placeholder="Latitude (ex: 46.778)"
+        style="background:var(--bg-card);border:1px solid var(--border);color:var(--text-main);padding:8px 12px;border-radius:8px;font-family:var(--text-mono);font-size:0.8rem;outline:none;width:100%;">
+      <input type="number" id="manual-lon" placeholder="Longitude (ex: 6.641)"
+        style="background:var(--bg-card);border:1px solid var(--border);color:var(--text-main);padding:8px 12px;border-radius:8px;font-family:var(--text-mono);font-size:0.8rem;outline:none;width:100%;">
+      <button class="btn-primary" id="btn-apply-pos">Appliquer position</button>
+    </div>
+  </div>
+
+  <button class="btn-primary" id="btn-request-notif" style="margin-bottom:8px;">
+    🔔 Autoriser les notifications
+  </button>
+  <button class="btn-primary" style="background:rgba(255,77,109,0.1);border-color:rgba(255,77,109,0.3);color:var(--red);" id="btn-close-settings">
+    Fermer les paramètres
+  </button>
+</div>
+
+<!-- MAIN APP -->
+<div id="app">
+  <header>
+    <div class="logo">
+      <div class="logo-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f5a623" stroke-width="2">
+          <path d="M21 16l-4-8-4 8M3 8l4 8 4-8M12 3v5M12 16v5"/>
+        </svg>
+      </div>
+      <div>
+        <h1>PLANERADAR</h1>
+        <span>Surveillance aérienne</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status-dot" id="status-dot"></div>
+      <div class="status-text" id="status-text">--</div>
+      <button class="btn-icon" id="btn-settings" title="Paramètres">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div id="map-container">
+    <div id="map"></div>
+    <div class="hud-overlay">
+      <div class="hud-tl" id="hud-coords">LAT -- · LON --</div>
+      <div class="hud-tr" id="hud-time">--:--:--</div>
+      <div class="hud-bl" id="hud-count">0 AVIONS DÉTECTÉS</div>
+      <div class="hud-br" id="hud-next">PROCHAINE MAJ --s</div>
+    </div>
+  </div>
+
+  <div id="bottom-panel">
+    <div class="panel-handle" id="panel-handle">
+      <div class="panel-title">
+        <h2>✈ Avions proches</h2>
+        <div class="count-badge" id="count-badge">0</div>
+      </div>
+      <svg class="panel-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="18 15 12 9 6 15"/>
+      </svg>
+    </div>
+    <div class="planes-list" id="planes-list">
+      <div class="empty-state">
+        <span class="radar-anim">📡</span>
+        En attente de ta position GPS…
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div id="toast-container"></div>
+
+<!-- Leaflet JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<script>
+// ══════════════════════════════════════════════
+//  AIRLINE ICAO DATABASE (callsign prefix → name)
+// ══════════════════════════════════════════════
+const AIRLINES = {
+  AFR:'Air France', BAW:'British Airways', DLH:'Lufthansa', UAE:'Emirates',
+  RYR:'Ryanair', EZY:'easyJet', IBE:'Iberia', AZA:'ITA Airways', THY:'Turkish Airlines',
+  SWR:'Swiss International', KLM:'KLM', SAS:'Scandinavian Airlines',
+  VLG:'Vueling', NOR:'Norwegian', WZZ:'Wizz Air', GEC:'Lufthansa Cargo',
+  TAP:'TAP Air Portugal', FIN:'Finnair', AUA:'Austrian Airlines', LOT:'LOT Polish',
+  CSN:'China Southern', CCA:'Air China', CES:'China Eastern', SIA:'Singapore Airlines',
+  QFA:'Qantas', UAL:'United Airlines', AAL:'American Airlines', DAL:'Delta Air Lines',
+  SWA:'Southwest Airlines', FFT:'Frontier Airlines', NKS:'Spirit Airlines',
+  ACE:'Air Canada Express', ACA:'Air Canada', SKW:'SkyWest', CAW:'Air Canada Rouge',
+  EIN:'Aer Lingus', HAL:'Hawaiian Airlines', ASA:'Alaska Airlines', JBU:'JetBlue',
+  BTI:'Air Baltic', TVF:'Transavia France', TVS:'Transavia', HOP:'HOP!',
+  AHY:'Azerbaijan Airlines', MSR:'EgyptAir', ETH:'Ethiopian Airlines', KQA:'Kenya Airways',
+  SAA:'South African Airways', QTR:'Qatar Airways', ETD:'Etihad Airways', GFA:'Gulf Air',
+  OMA:'Oman Air', SVA:'Saudi Arabian Airlines', RAM:'Royal Air Maroc', TUN:'Tunisair',
+  IST:'Istanbul Airlines', PGT:'Pegasus Airlines', OHY:'Onur Air', XAN:'Corendon Airlines',
+  TOM:'TUI Airways', TCX:'TUI fly', BCY:'Jet2', EXS:'Jet2', VIR:'Virgin Atlantic',
+  CLX:'Cargolux', FDX:'FedEx', UPS:'UPS Airlines', PAC:'Polar Air Cargo',
+  GTI:'Atlas Air', AMX:'Aeromexico', AVA:'Avianca', LAN:'LATAM Airlines', AZU:'Azul',
+  GLO:'Gol', TAM:'LATAM Brasil', AIC:'Air India', IGO:'IndiGo', SEJ:'SpiceJet',
+  AXB:'Air Arabia', FDB:'flydubai', LMU:'Lumiwings', ENT:'Enter Air',
+  SHQ:'Cobalt Air', AEE:'Aegean Airlines', MAS:'Malaysia Airlines', THA:'Thai Airways',
+  CPA:'Cathay Pacific', ANZ:'Air New Zealand', ANG:'Air Niugini',
+  ICE:'Icelandair', CFR:'CargoLogicAir', TRA:'Transavia', EWG:'Eurowings',
+  FHY:'Freebird Airlines', BEL:'Brussels Airlines', VKG:'Thomas Cook Airlines Scandinavia',
+  DAN:'Marabu Airlines', ALK:'Sri Lankan Airlines', BMA:'Biman Bangladesh',
+  MGL:'MIAT Mongolian', PAL:'Philippine Airlines', KAL:'Korean Air', AAR:'Asiana Airlines',
+  JAL:'Japan Airlines', ANA:'All Nippon Airways', SFJ:'Starflyer',
+  WJA:'WestJet', PKC:'Pacificair', SKY:'Sky Express', MON:'Monarch Airlines',
+};
+
+function getAirline(callsign) {
+  if (!callsign || callsign.length < 3) return null;
+  const prefix = callsign.slice(0,3).toUpperCase().replace(/\d/g,'');
+  return AIRLINES[prefix] || null;
+}
+
+// ══════════════════════════════════════════════
+//  APP STATE
+// ══════════════════════════════════════════════
+const state = {
+  lat: null, lon: null,
+  radius: 10,
+  interval: 30,
+  notifEnabled: true,
+  soundEnabled: false,
+  altFilter: false,
+  planes: new Map(),
+  seenIcao: new Set(),
+  map: null,
+  myMarker: null,
+  radiusCircle: null,
+  planeMarkers: new Map(),
+  countdown: 0,
+  scanning: false,
+  intervalId: null,
+  countdownId: null,
+};
+
+// ══════════════════════════════════════════════
+//  MAP INIT
+// ══════════════════════════════════════════════
+function initMap() {
+  state.map = L.map('map', {
+    zoomControl: false,
+    attributionControl: false,
+  }).setView([46.778, 6.641], 11);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 18,
+  }).addTo(state.map);
+}
+
+function updateMapPosition() {
+  if (!state.lat || !state.lon) return;
+
+  // My position marker
+  const myIcon = L.divIcon({
+    className: '',
+    html: '<div class="my-marker"></div>',
+    iconSize: [20,20], iconAnchor: [10,10],
+  });
+
+  if (state.myMarker) {
+    state.myMarker.setLatLng([state.lat, state.lon]);
+  } else {
+    state.myMarker = L.marker([state.lat, state.lon], { icon: myIcon }).addTo(state.map);
+    state.map.setView([state.lat, state.lon], 11);
+  }
+
+  // Radius circle
+  if (state.radiusCircle) state.map.removeLayer(state.radiusCircle);
+  state.radiusCircle = L.circle([state.lat, state.lon], {
+    radius: state.radius * 1000,
+    className: 'radius-circle',
+    weight: 1.5,
+    fillOpacity: 0.04,
+  }).addTo(state.map);
+
+  // HUD
+  document.getElementById('hud-coords').textContent =
+    `LAT ${state.lat.toFixed(4)} · LON ${state.lon.toFixed(4)}`;
+}
+
+// ══════════════════════════════════════════════
+//  GPS LOCATION
+// ══════════════════════════════════════════════
+function getLocation() {
+  setStatus('Localisation…', 'dim');
+  if (!navigator.geolocation) {
+    setStatus('GPS indisponible', 'error');
+    hideLoading();
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      state.lat = pos.coords.latitude;
+      state.lon = pos.coords.longitude;
+      updateMapPosition();
+      hideLoading();
+      startScanning();
+    },
+    err => {
+      console.warn('GPS error:', err);
+      // Fallback: Yverdon-les-Bains
+      state.lat = 46.778;
+      state.lon = 6.641;
+      showToast('📍', 'Position par défaut', 'GPS non disponible — Yverdon-les-Bains utilisé');
+      updateMapPosition();
+      hideLoading();
+      startScanning();
+    },
+    { enableHighAccuracy: true, timeout: 8000 }
+  );
+}
+
+// ══════════════════════════════════════════════
+//  DISTANCE (Haversine)
+// ══════════════════════════════════════════════
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const dl = (lat2-lat1) * Math.PI/180;
+  const dL = (lon2-lon1) * Math.PI/180;
+  const a = Math.sin(dl/2)**2 +
+    Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dL/2)**2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+
+// ══════════════════════════════════════════════
+//  FETCH PLANES FROM OPENSKY
+// ══════════════════════════════════════════════
+async function fetchPlanes() {
+  if (!state.lat || !state.lon) return;
+  const delta = state.radius / 111 * 1.2;
+  const params = new URLSearchParams({
+    lamin: state.lat - delta,
+    lamax: state.lat + delta,
+    lomin: state.lon - delta,
+    lomax: state.lon + delta,
+  });
+
+  try {
+    const res = await fetch(`https://opensky-network.org/api/states/all?${params}`);
+    if (!res.ok) throw new Error(res.status);
+    const json = await res.json();
+    const states = json.states || [];
+    processPlanes(states);
+    setStatus(`${state.planes.size} avion${state.planes.size!==1?'s':''}`, 'scanning');
+  } catch (e) {
+    console.error('OpenSky error:', e);
+    setStatus('Erreur réseau', 'error');
+  }
+}
+
+// ══════════════════════════════════════════════
+//  PROCESS PLANES
+// ══════════════════════════════════════════════
+function processPlanes(rawStates) {
+  const nowIcaos = new Set();
+
+  for (const s of rawStates) {
+    const icao     = s[0];
+    const callsign = (s[1] || '').trim() || icao;
+    const country  = s[2] || '?';
+    const lon      = s[5];
+    const lat      = s[6];
+    const alt      = Math.round(s[7] || s[13] || 0); // baro or geo alt
+    const speed    = s[9] ? Math.round(s[9] * 3.6) : 0; // m/s → km/h
+    const heading  = s[10] || 0;
+    const onGround = s[8];
+
+    if (!lat || !lon || onGround) continue;
+    if (state.altFilter && alt < 500) continue;
+
+    const dist = distanceKm(state.lat, state.lon, lat, lon);
+    if (dist > state.radius) continue;
+
+    nowIcaos.add(icao);
+
+    const plane = {
+      icao, callsign, country, lat, lon, alt, speed, heading,
+      dist: Math.round(dist * 10) / 10,
+      airline: getAirline(callsign),
+    };
+
+    const isNew = !state.seenIcao.has(icao);
+    state.planes.set(icao, plane);
+
+    if (isNew) {
+      state.seenIcao.add(icao);
+      onNewPlane(plane);
+    }
+
+    updatePlaneMarker(plane);
+  }
+
+  // Remove planes that left
+  for (const [icao, plane] of state.planes) {
+    if (!nowIcaos.has(icao)) {
+      state.planes.delete(icao);
+      removePlaneMarker(icao);
+    }
+  }
+
+  renderPlaneList();
+  updateHudCount();
+}
+
+// ══════════════════════════════════════════════
+//  PLANE MAP MARKERS
+// ══════════════════════════════════════════════
+function getPlaneEmoji(speed, alt) {
+  if (alt > 10000) return '✈️';
+  if (speed > 200) return '🛫';
+  return '🛩️';
+}
+
+function updatePlaneMarker(plane) {
+  const icon = L.divIcon({
+    className: 'plane-marker',
+    html: `<div class="plane-icon" style="transform:rotate(${plane.heading}deg)">${getPlaneEmoji(plane.speed, plane.alt)}</div>`,
+    iconSize: [30, 30], iconAnchor: [15, 15],
+  });
+
+  const popup = L.popup({ className: '' }).setContent(`
+    <div class="popup-content">
+      <div class="popup-callsign">✈ ${plane.callsign}</div>
+      <div class="popup-row"><span>Altitude</span><span>${plane.alt.toLocaleString()} m</span></div>
+      <div class="popup-row"><span>Vitesse</span><span>${plane.speed} km/h</span></div>
+      <div class="popup-row"><span>Distance</span><span>${plane.dist} km</span></div>
+      <div class="popup-row"><span>Cap</span><span>${Math.round(plane.heading)}°</span></div>
+      <div class="popup-row"><span>Pays</span><span>${plane.country}</span></div>
+      ${plane.airline ? `<div class="popup-airline">🏷 ${plane.airline}</div>` : ''}
+    </div>
+  `);
+
+  if (state.planeMarkers.has(plane.icao)) {
+    const m = state.planeMarkers.get(plane.icao);
+    m.setLatLng([plane.lat, plane.lon]);
+    m.setIcon(icon);
+    m.bindPopup(popup);
+  } else {
+    const m = L.marker([plane.lat, plane.lon], { icon })
+      .bindPopup(popup)
+      .addTo(state.map);
+    state.planeMarkers.set(plane.icao, m);
+  }
+}
+
+function removePlaneMarker(icao) {
+  if (state.planeMarkers.has(icao)) {
+    state.map.removeLayer(state.planeMarkers.get(icao));
+    state.planeMarkers.delete(icao);
+  }
+}
+
+// ══════════════════════════════════════════════
+//  NEW PLANE DETECTED
+// ══════════════════════════════════════════════
+function onNewPlane(plane) {
+  const airline = plane.airline || plane.country;
+  const title   = `✈️ ${plane.callsign} détecté !`;
+  const body    = `${airline} · ${plane.dist}km · ${plane.alt}m d'altitude`;
+
+  showToast('✈️', title, body, plane.icao);
+
+  if (state.notifEnabled && 'Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, {
+      body,
+      icon: 'icon-192.png',
+      badge: 'icon-192.png',
+      tag: plane.icao,
+      renotify: true,
+    });
+  }
+
+  if (state.soundEnabled) playBeep();
+}
+
+// ══════════════════════════════════════════════
+//  UI: PLANE LIST
+// ══════════════════════════════════════════════
+function renderPlaneList() {
+  const list = document.getElementById('planes-list');
+  const badge = document.getElementById('count-badge');
+  const count = state.planes.size;
+
+  badge.textContent = count;
+
+  if (count === 0) {
+    list.innerHTML = `
+      <div class="empty-state">
+        <span class="radar-anim">📡</span>
+        Aucun avion dans un rayon de ${state.radius} km
+      </div>`;
+    return;
+  }
+
+  const sorted = [...state.planes.values()].sort((a, b) => a.dist - b.dist);
+  list.innerHTML = sorted.map(p => `
+    <div class="plane-card" onclick="focusPlane('${p.icao}')">
+      <div class="card-icon">${getPlaneEmoji(p.speed, p.alt)}</div>
+      <div class="card-info">
+        <div class="card-callsign">${p.callsign}</div>
+        <div class="card-airline">${p.airline || p.country}</div>
+        <div class="card-route">${Math.round(p.heading)}° · ${p.speed} km/h</div>
+      </div>
+      <div class="card-stats">
+        <div class="stat-val">${p.dist}km</div>
+        <div class="stat-lbl">distance</div>
+        <div class="stat-val" style="font-size:0.7rem;color:var(--text-dim)">${(p.alt/1000).toFixed(1)}km</div>
+        <div class="stat-lbl">altitude</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function focusPlane(icao) {
+  const plane = state.planes.get(icao);
+  if (!plane) return;
+  state.map.flyTo([plane.lat, plane.lon], 12, { duration: 1 });
+  if (state.planeMarkers.has(icao)) {
+    state.planeMarkers.get(icao).openPopup();
+  }
+}
+
+// ══════════════════════════════════════════════
+//  UI: HUD
+// ══════════════════════════════════════════════
+function updateHudCount() {
+  document.getElementById('hud-count').textContent =
+    `${state.planes.size} AVION${state.planes.size!==1?'S':''} DÉTECTÉ${state.planes.size!==1?'S':''}`;
+}
+
+function updateHudTime() {
+  const now = new Date();
+  document.getElementById('hud-time').textContent =
+    now.toLocaleTimeString('fr-FR', { hour12: false });
+}
+
+function startCountdown() {
+  state.countdown = state.interval;
+  if (state.countdownId) clearInterval(state.countdownId);
+  state.countdownId = setInterval(() => {
+    state.countdown = Math.max(0, state.countdown - 1);
+    document.getElementById('hud-next').textContent =
+      `PROCHAINE MAJ ${state.countdown}s`;
+  }, 1000);
+}
+
+// ══════════════════════════════════════════════
+//  STATUS
+// ══════════════════════════════════════════════
+function setStatus(text, type) {
+  const dot  = document.getElementById('status-dot');
+  const txt  = document.getElementById('status-text');
+  txt.textContent = text;
+  dot.className = 'status-dot ' + (type === 'scanning' ? 'scanning' : type === 'error' ? 'error' : '');
+}
+
+// ══════════════════════════════════════════════
+//  SCANNING LOOP
+// ══════════════════════════════════════════════
+function startScanning() {
+  if (state.scanning) return;
+  state.scanning = true;
+  setStatus('Scan…', 'scanning');
+  fetchPlanes();
+  if (state.intervalId) clearInterval(state.intervalId);
+  state.intervalId = setInterval(() => {
+    fetchPlanes();
+    startCountdown();
+  }, state.interval * 1000);
+  startCountdown();
+}
+
+// ══════════════════════════════════════════════
+//  TOAST
+// ══════════════════════════════════════════════
+function showToast(icon, title, body) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.innerHTML = `
+    <div class="toast-icon">${icon}</div>
+    <div>
+      <div class="toast-title">${title}</div>
+      <div class="toast-body">${body}</div>
+    </div>`;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 5000);
+}
+
+// ══════════════════════════════════════════════
+//  SOUND BEEP
+// ══════════════════════════════════════════════
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+    osc.start(); osc.stop(ctx.currentTime + 0.3);
+  } catch(e) {}
+}
+
+// ══════════════════════════════════════════════
+//  LOADING SCREEN
+// ══════════════════════════════════════════════
+function hideLoading() {
+  const el = document.getElementById('loading-screen');
+  el.classList.add('hidden');
+  setTimeout(() => el.style.display = 'none', 500);
+}
+
+// ══════════════════════════════════════════════
+//  SETTINGS
+// ══════════════════════════════════════════════
+document.getElementById('btn-settings').addEventListener('click', () => {
+  document.getElementById('settings-panel').classList.add('open');
+  document.getElementById('settings-overlay').classList.add('open');
+});
+
+function closeSettings() {
+  document.getElementById('settings-panel').classList.remove('open');
+  document.getElementById('settings-overlay').classList.remove('open');
+}
+
+document.getElementById('settings-overlay').addEventListener('click', closeSettings);
+document.getElementById('btn-close-settings').addEventListener('click', closeSettings);
+
+document.getElementById('radius-slider').addEventListener('input', function() {
+  state.radius = +this.value;
+  document.getElementById('radius-val').textContent = state.radius;
+  updateMapPosition();
+});
+
+document.getElementById('interval-slider').addEventListener('input', function() {
+  state.interval = +this.value;
+  document.getElementById('interval-val').textContent = state.interval;
+  if (state.scanning) {
+    clearInterval(state.intervalId);
+    state.intervalId = setInterval(() => { fetchPlanes(); startCountdown(); }, state.interval * 1000);
+    startCountdown();
+  }
+});
+
+document.getElementById('notif-toggle').addEventListener('change', function() {
+  state.notifEnabled = this.checked;
+});
+document.getElementById('sound-toggle').addEventListener('change', function() {
+  state.soundEnabled = this.checked;
+});
+document.getElementById('alt-filter-toggle').addEventListener('change', function() {
+  state.altFilter = this.checked;
+});
+
+document.getElementById('btn-request-notif').addEventListener('click', async () => {
+  const perm = await Notification.requestPermission();
+  if (perm === 'granted') {
+    showToast('🔔', 'Notifications activées', 'Tu recevras une alerte pour chaque nouvel avion');
+  } else {
+    showToast('❌', 'Notifications refusées', 'Active-les dans les paramètres de ton navigateur');
+  }
+});
+
+document.getElementById('btn-apply-pos').addEventListener('click', () => {
+  const lat = parseFloat(document.getElementById('manual-lat').value);
+  const lon = parseFloat(document.getElementById('manual-lon').value);
+  if (isNaN(lat) || isNaN(lon)) {
+    showToast('⚠️', 'Coordonnées invalides', 'Entre une latitude et une longitude valides');
+    return;
+  }
+  state.lat = lat; state.lon = lon;
+  updateMapPosition();
+  state.planes.clear();
+  state.seenIcao.clear();
+  fetchPlanes();
+  closeSettings();
+});
+
+// ══════════════════════════════════════════════
+//  BOTTOM PANEL COLLAPSE
+// ══════════════════════════════════════════════
+const panel = document.getElementById('bottom-panel');
+let panelOpen = true;
+document.getElementById('panel-handle').addEventListener('click', () => {
+  panelOpen = !panelOpen;
+  panel.className = panelOpen ? '' : 'collapsed';
+});
+
+// ══════════════════════════════════════════════
+//  PWA INSTALL
+// ══════════════════════════════════════════════
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('install-banner').classList.add('visible');
+});
+
+document.getElementById('btn-install').addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  const { outcome } = await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  document.getElementById('install-banner').classList.remove('visible');
+});
+
+document.getElementById('btn-dismiss').addEventListener('click', () => {
+  document.getElementById('install-banner').classList.remove('visible');
+});
+
+// ══════════════════════════════════════════════
+//  SERVICE WORKER
+// ══════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js')
+    .then(() => console.log('SW registered'))
+    .catch(console.error);
+}
+
+// ══════════════════════════════════════════════
+//  NOTIFICATION PERMISSION
+// ══════════════════════════════════════════════
+async function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    await Notification.requestPermission();
+  }
+}
+
+// ══════════════════════════════════════════════
+//  CLOCK
+// ══════════════════════════════════════════════
+setInterval(updateHudTime, 1000);
+updateHudTime();
+
+// ══════════════════════════════════════════════
+//  BOOT
+// ══════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  initMap();
+  requestNotificationPermission();
+  getLocation();
+});
+</script>
+</body>
+</html>
